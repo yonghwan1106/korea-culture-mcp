@@ -1272,7 +1272,7 @@ async function cultureSearchFestival(args: {
   const eventEndDate = `${year}${currentMonth.padStart(2, "0")}${lastDay}`;
 
   try {
-    let url = `${TOUR_API_BASE}/searchFestival2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=A&eventStartDate=${eventStartDate}&eventEndDate=${eventEndDate}`;
+    let url = `${TOUR_API_BASE}/searchFestival2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&arrange=A&eventStartDate=${eventStartDate}&eventEndDate=${eventEndDate}`;
 
     if (args.region && TOUR_AREA_CODE[args.region]) {
       url += `&areaCode=${TOUR_AREA_CODE[args.region]}`;
@@ -1352,10 +1352,10 @@ async function cultureSearchTouristSpot(args: {
 
     if (args.keyword) {
       // 키워드 검색
-      url = `${TOUR_API_BASE}/searchKeyword2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
+      url = `${TOUR_API_BASE}/searchKeyword2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
     } else {
       // 지역 기반 검색
-      url = `${TOUR_API_BASE}/areaBasedList2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&contentTypeId=${contentTypeId}`;
+      url = `${TOUR_API_BASE}/areaBasedList2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&arrange=P&contentTypeId=${contentTypeId}`;
     }
 
     if (args.region && TOUR_AREA_CODE[args.region]) {
@@ -1427,9 +1427,9 @@ async function cultureSearchRestaurant(args: {
     let url: string;
 
     if (args.keyword) {
-      url = `${TOUR_API_BASE}/searchKeyword2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
+      url = `${TOUR_API_BASE}/searchKeyword2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
     } else {
-      url = `${TOUR_API_BASE}/areaBasedList2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&contentTypeId=${contentTypeId}`;
+      url = `${TOUR_API_BASE}/areaBasedList2?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&arrange=P&contentTypeId=${contentTypeId}`;
     }
 
     if (args.region && TOUR_AREA_CODE[args.region]) {
