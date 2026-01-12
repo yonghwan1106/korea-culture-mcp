@@ -1,0 +1,24 @@
+{
+  "name": "korea-culture-mcp",
+  "version": "1.0.0",
+  "description": "영화 박스오피스, 공연/전시 정보를 AI로 조회하는 MCP 서버",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --esm src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["mcp", "movie", "performance", "kobis", "kopis", "playmcp"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vercel/node": "^3.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}
