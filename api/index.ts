@@ -89,6 +89,40 @@ interface Facility {
   lo: string;
 }
 
+interface FacilityDetail {
+  mt10id: string;
+  fcltynm: string;
+  mt13cnt: string;
+  fcltychartr: string;
+  opende: string;
+  seatscale: string;
+  telno: string;
+  relateurl: string;
+  adres: string;
+  la: string;
+  lo: string;
+  // 부대시설
+  parkinglot: string;
+  restaurant: string;
+  cafe: string;
+  store: string;
+  nolibang: string;
+  suyu: string;
+  barrier: string;
+  // 홀 정보
+  mt13s: HallInfo[];
+}
+
+interface HallInfo {
+  mt13id: string;
+  prfplcnm: string;
+  seatscale: string;
+  stageorchat: string;
+  stagepitchat: string;
+  stagewichat: string;
+  stagehechat: string;
+}
+
 interface ToolArguments {
   type?: string;
   date?: string;
@@ -421,6 +455,61 @@ function parseFacilityList(xml: string): Facility[] {
   }
 
   return items;
+}
+
+function parseFacilityDetail(xml: string): FacilityDetail | null {
+  if (!xml.includes("<db>")) return null;
+
+  // 홀 정보 파싱
+  const halls: HallInfo[] = [];
+  const mt13Regex = /<mt13>([\s\S]*?)<\/mt13>/g;
+  let hallMatch;
+
+  while ((hallMatch = mt13Regex.exec(xml)) !== null) {
+    const hallXml = hallMatch[1];
+    halls.push({
+      mt13id: extractXmlValue(hallXml, "mt13id"),
+      prfplcnm: extractXmlValue(hallXml, "prfplcnm"),
+      seatscale: extractXmlValue(hallXml, "seatscale"),
+      stageorchat: extractXmlValue(hallXml, "stageorchat"),
+      stagepitchat: extractXmlValue(hallXml, "stagepitchat"),
+      stagewichat: extractXmlValue(hallXml, "stagewichat"),
+      stagehechat: extractXmlValue(hallXml, "stagehechat"),
+    });
+  }
+
+  return {
+    mt10id: extractXmlValue(xml, "mt10id"),
+    fcltynm: extractXmlValue(xml, "fcltynm"),
+    mt13cnt: extractXmlValue(xml, "mt13cnt"),
+    fcltychartr: extractXmlValue(xml, "fcltychartr"),
+    opende: extractXmlValue(xml, "opende"),
+    seatscale: extractXmlValue(xml, "seatscale"),
+    telno: extractXmlValue(xml, "telno"),
+    relateurl: extractXmlValue(xml, "relateurl"),
+    adres: extractXmlValue(xml, "adres"),
+    la: extractXmlValue(xml, "la"),
+    lo: extractXmlValue(xml, "lo"),
+    parkinglot: extractXmlValue(xml, "parkinglot"),
+    restaurant: extractXmlValue(xml, "restaurant"),
+    cafe: extractXmlValue(xml, "cafe"),
+    store: extractXmlValue(xml, "store"),
+    nolibang: extractXmlValue(xml, "nolibang"),
+    suyu: extractXmlValue(xml, "suyu"),
+    barrier: extractXmlValue(xml, "barrier"),
+    mt13s: halls,
+  };
+}
+
+async function fetchFacilityDetail(facilityId: string): Promise<FacilityDetail | null> {
+  try {
+    const url = `http://www.kopis.or.kr/openApi/restful/prfplc/${facilityId}?service=${KOPIS_API_KEY}`;
+    const response = await fetchWithTimeout(url);
+    const xml = await response.text();
+    return parseFacilityDetail(xml);
+  } catch {
+    return null;
+  }
 }
 
 // ===== 도구 구현 =====
@@ -770,21 +859,59 @@ async function cultureGetFacilityInfo(args: {
     const xml = await response.text();
     const facilities = parseFacilityList(xml);
 
+    if (facilities.length === 0) {
+      if (format === "json") {
+        return JSON.stringify({ keyword: args.facility_name || null, region: args.region || null, count: 0, facilities: [] }, null, 2);
+      }
+      let md = `## 🏛️ 공연장 검색 결과\n\n`;
+      if (args.facility_name) md += `> 검색어: "${args.facility_name}"\n`;
+      if (args.region) md += `> 지역: ${args.region}\n`;
+      return md + "\n검색된 공연장이 없습니다.";
+    }
+
+    // 검색 결과가 3개 이하면 상세 정보도 가져옴
+    const shouldFetchDetails = facilities.length <= 3;
+    const detailsMap: Map<string, FacilityDetail> = new Map();
+
+    if (shouldFetchDetails) {
+      const detailPromises = facilities.map(f => fetchFacilityDetail(f.mt10id));
+      const details = await Promise.all(detailPromises);
+      details.forEach((detail, idx) => {
+        if (detail) {
+          detailsMap.set(facilities[idx].mt10id, detail);
+        }
+      });
+    }
+
     if (format === "json") {
       return JSON.stringify({
         keyword: args.facility_name || null,
         region: args.region || null,
         count: facilities.length,
-        facilities: facilities.map(f => ({
-          id: f.mt10id,
-          name: f.fcltynm,
-          type: f.fcltychartr,
-          area: `${f.sidonm} ${f.gugunnm}`,
-          address: f.adres,
-          seatCount: f.seatscale,
-          tel: f.telno,
-          website: f.relateurl,
-        })),
+        facilities: facilities.map(f => {
+          const detail = detailsMap.get(f.mt10id);
+          return {
+            id: f.mt10id,
+            name: f.fcltynm,
+            type: f.fcltychartr,
+            area: `${f.sidonm} ${f.gugunnm}`,
+            address: detail?.adres || f.adres,
+            seatCount: detail?.seatscale || f.seatscale,
+            tel: detail?.telno || f.telno,
+            website: detail?.relateurl || f.relateurl,
+            openDate: detail?.opende || null,
+            parking: detail?.parkinglot || null,
+            restaurant: detail?.restaurant || null,
+            cafe: detail?.cafe || null,
+            store: detail?.store || null,
+            barrierFree: detail?.barrier || null,
+            nursingRoom: detail?.suyu || null,
+            halls: detail?.mt13s?.map(h => ({
+              name: h.prfplcnm,
+              seats: h.seatscale,
+            })) || [],
+          };
+        }),
       }, null, 2);
     }
 
@@ -794,19 +921,65 @@ async function cultureGetFacilityInfo(args: {
     if (args.region) md += `> 지역: ${args.region}\n`;
     md += `> ${facilities.length}개 공연장 발견\n\n`;
 
-    if (facilities.length === 0) {
-      return md + "검색된 공연장이 없습니다.";
-    }
-
     facilities.forEach((f, idx) => {
-      md += `### ${idx + 1}. ${f.fcltynm}\n`;
-      md += `- **유형**: ${f.fcltychartr || "정보 없음"}\n`;
-      md += `- **위치**: ${f.sidonm} ${f.gugunnm}\n`;
-      md += `- **주소**: ${f.adres || "정보 없음"}\n`;
-      md += `- **좌석수**: ${f.seatscale || "정보 없음"}석\n`;
-      if (f.telno) md += `- **전화**: ${f.telno}\n`;
-      if (f.relateurl) md += `- **웹사이트**: ${f.relateurl}\n`;
+      const detail = detailsMap.get(f.mt10id);
+
+      md += `### ${idx + 1}. ${f.fcltynm}\n\n`;
+
+      // 기본 정보 테이블
+      md += `| 항목 | 내용 |\n|------|------|\n`;
+      md += `| **유형** | ${f.fcltychartr || "정보 없음"} |\n`;
+      md += `| **위치** | ${f.sidonm} ${f.gugunnm} |\n`;
+      md += `| **주소** | ${detail?.adres || f.adres || "정보 없음"} |\n`;
+      md += `| **좌석수** | ${detail?.seatscale || f.seatscale || "정보 없음"}석 |\n`;
+      if (detail?.telno || f.telno) md += `| **전화** | ${detail?.telno || f.telno} |\n`;
+      if (detail?.relateurl || f.relateurl) md += `| **웹사이트** | ${detail?.relateurl || f.relateurl} |\n`;
+      if (detail?.opende) md += `| **개관일** | ${detail.opende} |\n`;
       md += "\n";
+
+      // 상세 정보가 있는 경우
+      if (detail) {
+        // 홀 정보
+        if (detail.mt13s && detail.mt13s.length > 0) {
+          md += `#### 🎪 공연장(홀) 정보\n`;
+          detail.mt13s.forEach(hall => {
+            md += `- **${hall.prfplcnm}**: ${hall.seatscale || "정보 없음"}석`;
+            if (hall.stageorchat || hall.stagewichat || hall.stagehechat) {
+              const dimensions = [];
+              if (hall.stagewichat) dimensions.push(`폭 ${hall.stagewichat}m`);
+              if (hall.stagehechat) dimensions.push(`높이 ${hall.stagehechat}m`);
+              if (hall.stageorchat) dimensions.push(`오케스트라피트 ${hall.stageorchat}m`);
+              if (dimensions.length > 0) md += ` (${dimensions.join(", ")})`;
+            }
+            md += "\n";
+          });
+          md += "\n";
+        }
+
+        // 부대시설
+        const amenities: string[] = [];
+        if (detail.parkinglot === "Y") amenities.push("🅿️ 주차장");
+        if (detail.restaurant === "Y") amenities.push("🍽️ 레스토랑");
+        if (detail.cafe === "Y") amenities.push("☕ 카페");
+        if (detail.store === "Y") amenities.push("🏪 편의점");
+        if (detail.suyu === "Y") amenities.push("👶 수유실");
+        if (detail.barrier === "Y") amenities.push("♿ 장애인시설");
+        if (detail.nolibang === "Y") amenities.push("🎤 노래방");
+
+        if (amenities.length > 0) {
+          md += `#### 🏢 부대시설\n`;
+          md += amenities.join(" | ") + "\n\n";
+        }
+
+        // 위치 정보 (위경도)
+        if (detail.la && detail.lo) {
+          md += `#### 📍 위치\n`;
+          md += `- 위도: ${detail.la}, 경도: ${detail.lo}\n`;
+          md += `- [카카오맵에서 보기](https://map.kakao.com/link/map/${encodeURIComponent(f.fcltynm)},${detail.la},${detail.lo})\n\n`;
+        }
+      }
+
+      md += "---\n\n";
     });
 
     return truncateResponse(md);
