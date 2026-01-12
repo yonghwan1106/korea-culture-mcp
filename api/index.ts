@@ -216,7 +216,8 @@ function getErrorMessage(error: unknown): string {
 
 const KOBIS_API_KEY = process.env.KOBIS_API_KEY;
 const KOPIS_API_KEY = process.env.KOPIS_API_KEY;
-const TOUR_API_KEY = process.env.TOUR_API_KEY;
+const TOUR_API_KEY_RAW = process.env.TOUR_API_KEY;
+const TOUR_API_KEY = TOUR_API_KEY_RAW ? encodeURIComponent(TOUR_API_KEY_RAW) : "";
 
 if (!KOBIS_API_KEY) {
   console.error("KOBIS_API_KEY 환경 변수가 설정되지 않았습니다.");
@@ -224,7 +225,7 @@ if (!KOBIS_API_KEY) {
 if (!KOPIS_API_KEY) {
   console.error("KOPIS_API_KEY 환경 변수가 설정되지 않았습니다.");
 }
-if (!TOUR_API_KEY) {
+if (!TOUR_API_KEY_RAW) {
   console.error("TOUR_API_KEY 환경 변수가 설정되지 않았습니다.");
 }
 
