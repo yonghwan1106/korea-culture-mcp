@@ -1,0 +1,1019 @@
+/**
+ * Korea Culture MCP Server - Vercel Serverless Handler
+ *
+ * 영화 박스오피스, 공연/전시 정보를 AI로 조회하는 MCP 서버
+ *
+ * 제공 도구:
+ * - culture_get_box_office: 일별/주간 영화 박스오피스
+ * - culture_get_movie_detail: 영화 상세정보
+ * - culture_search_performance: 공연 검색
+ * - culture_get_performance_detail: 공연 상세정보
+ * - culture_get_facility_info: 공연장 정보
+ * - culture_get_recommendations: 오늘의 추천
+ */
+
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+// ===== 타입 정의 =====
+
+interface BoxOfficeMovie {
+  rank: string;
+  movieNm: string;
+  openDt: string;
+  audiAcc: string;
+  audiCnt: string;
+  salesAcc: string;
+  movieCd: string;
+}
+
+interface MovieDetail {
+  movieCd: string;
+  movieNm: string;
+  movieNmEn: string;
+  showTm: string;
+  openDt: string;
+  prdtStatNm: string;
+  typeNm: string;
+  nations: { nationNm: string }[];
+  genres: { genreNm: string }[];
+  directors: { peopleNm: string }[];
+  actors: { peopleNm: string; cast: string }[];
+  companys: { companyNm: string; companyPartNm: string }[];
+  audits: { watchGradeNm: string }[];
+}
+
+interface Performance {
+  mt20id: string;
+  prfnm: string;
+  prfpdfrom: string;
+  prfpdto: string;
+  fcltynm: string;
+  poster: string;
+  genrenm: string;
+  prfstate: string;
+  openrun: string;
+  area: string;
+}
+
+interface PerformanceDetail {
+  mt20id: string;
+  prfnm: string;
+  prfpdfrom: string;
+  prfpdto: string;
+  fcltynm: string;
+  prfcast: string;
+  prfcrew: string;
+  prfruntime: string;
+  prfage: string;
+  pcseguidance: string;
+  poster: string;
+  genrenm: string;
+  prfstate: string;
+  styurls?: { styurl: string[] };
+  dtguidance: string;
+}
+
+interface Facility {
+  mt10id: string;
+  fcltynm: string;
+  mt13cnt: string;
+  fcltychartr: string;
+  sidonm: string;
+  gugunnm: string;
+  opende: string;
+  seatscale: string;
+  telno: string;
+  relateurl: string;
+  adres: string;
+  la: string;
+  lo: string;
+}
+
+interface ToolArguments {
+  type?: string;
+  date?: string;
+  movie_name?: string;
+  movie_code?: string;
+  keyword?: string;
+  genre?: string;
+  region?: string;
+  performance_id?: string;
+  facility_name?: string;
+  limit?: number;
+  response_format?: string;
+}
+
+// ===== 에러 메시지 추출 헬퍼 =====
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+// ===== 환경 변수 =====
+
+const KOBIS_API_KEY = process.env.KOBIS_API_KEY;
+const KOPIS_API_KEY = process.env.KOPIS_API_KEY;
+
+if (!KOBIS_API_KEY) {
+  console.error("KOBIS_API_KEY 환경 변수가 설정되지 않았습니다.");
+}
+if (!KOPIS_API_KEY) {
+  console.error("KOPIS_API_KEY 환경 변수가 설정되지 않았습니다.");
+}
+
+// ===== 상수 =====
+
+const SERVER_INFO = {
+  name: "korea-culture-mcp",
+  version: "1.0.0",
+};
+
+const CHARACTER_LIMIT = 25000;
+const DEFAULT_TIMEOUT = 15000;
+
+const GENRE_MAP: Record<string, string> = {
+  "연극": "AAAA",
+  "뮤지컬": "GGGA",
+  "클래식": "CCCA",
+  "국악": "CCCC",
+  "대중음악": "CCCD",
+  "무용": "BBBA",
+  "서커스/마술": "EEEA",
+  "복합": "EEEB",
+};
+
+const REGION_MAP: Record<string, string> = {
+  "서울": "11",
+  "부산": "26",
+  "대구": "27",
+  "인천": "28",
+  "광주": "29",
+  "대전": "30",
+  "울산": "31",
+  "세종": "36",
+  "경기": "41",
+  "강원": "42",
+  "충북": "43",
+  "충남": "44",
+  "전북": "45",
+  "전남": "46",
+  "경북": "47",
+  "경남": "48",
+  "제주": "50",
+};
+
+// ===== 도구 정의 =====
+
+const TOOLS = [
+  {
+    name: "culture_get_box_office",
+    description: "일별 또는 주간 영화 박스오피스 순위를 조회합니다. 현재 상영 중인 인기 영화를 확인할 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["daily", "weekly"],
+          description: "박스오피스 유형: daily(일별), weekly(주간). 기본값: daily",
+        },
+        date: {
+          type: "string",
+          description: "조회 날짜 (YYYYMMDD 형식). 기본값: 어제 날짜",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 영화 수 (1-10). 기본값: 10",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_get_movie_detail",
+    description: "특정 영화의 상세정보를 조회합니다. 감독, 배우, 줄거리, 관람등급 등을 확인할 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        movie_name: {
+          type: "string",
+          description: "영화 제목으로 검색",
+        },
+        movie_code: {
+          type: "string",
+          description: "KOBIS 영화 코드 (박스오피스에서 확인 가능)",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_search_performance",
+    description: "공연을 검색합니다. 연극, 뮤지컬, 콘서트, 클래식 등 다양한 장르의 공연을 찾을 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "검색 키워드 (공연명)",
+        },
+        genre: {
+          type: "string",
+          enum: ["연극", "뮤지컬", "클래식", "국악", "대중음악", "무용", "서커스/마술", "복합"],
+          description: "공연 장르",
+        },
+        region: {
+          type: "string",
+          description: "지역명 (예: 서울, 부산, 대구 등)",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 공연 수 (1-20). 기본값: 10",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_get_performance_detail",
+    description: "특정 공연의 상세정보를 조회합니다. 출연진, 공연시간, 티켓가격, 공연장 정보 등을 확인할 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        performance_id: {
+          type: "string",
+          description: "공연 ID (공연 검색에서 확인 가능)",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: ["performance_id"],
+    },
+  },
+  {
+    name: "culture_get_facility_info",
+    description: "공연장/극장 정보를 조회합니다. 위치, 좌석수, 연락처 등을 확인할 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        facility_name: {
+          type: "string",
+          description: "공연장 이름으로 검색",
+        },
+        region: {
+          type: "string",
+          description: "지역명 (예: 서울, 부산 등)",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 공연장 수 (1-20). 기본값: 10",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_get_recommendations",
+    description: "오늘의 추천 콘텐츠를 제공합니다. 인기 영화와 공연을 한 번에 확인할 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        region: {
+          type: "string",
+          description: "공연 추천 지역 (예: 서울). 기본값: 서울",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+];
+
+// ===== 유틸리티 함수 =====
+
+function truncateResponse(text: string): string {
+  if (text.length <= CHARACTER_LIMIT) return text;
+  return text.slice(0, CHARACTER_LIMIT) + "\n\n... (응답이 너무 길어 일부가 생략되었습니다)";
+}
+
+async function fetchWithTimeout(url: string, timeout = DEFAULT_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+function getYesterday(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function getToday(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr || dateStr.length !== 8) return dateStr;
+  return `${dateStr.slice(0, 4)}.${dateStr.slice(4, 6)}.${dateStr.slice(6, 8)}`;
+}
+
+function formatNumber(num: string | number): string {
+  return Number(num).toLocaleString("ko-KR");
+}
+
+// ===== XML 파싱 헬퍼 (KOPIS는 XML 응답) =====
+
+function extractXmlValue(xml: string, tag: string): string {
+  const regex = new RegExp(`<${tag}><!\\[CDATA\\[(.+?)\\]\\]></${tag}>|<${tag}>(.+?)</${tag}>`, "s");
+  const match = xml.match(regex);
+  return match ? (match[1] || match[2] || "").trim() : "";
+}
+
+function parsePerformanceList(xml: string): Performance[] {
+  const items: Performance[] = [];
+  const dbRegex = /<db>([\s\S]*?)<\/db>/g;
+  let match;
+
+  while ((match = dbRegex.exec(xml)) !== null) {
+    const item = match[1];
+    items.push({
+      mt20id: extractXmlValue(item, "mt20id"),
+      prfnm: extractXmlValue(item, "prfnm"),
+      prfpdfrom: extractXmlValue(item, "prfpdfrom"),
+      prfpdto: extractXmlValue(item, "prfpdto"),
+      fcltynm: extractXmlValue(item, "fcltynm"),
+      poster: extractXmlValue(item, "poster"),
+      genrenm: extractXmlValue(item, "genrenm"),
+      prfstate: extractXmlValue(item, "prfstate"),
+      openrun: extractXmlValue(item, "openrun"),
+      area: extractXmlValue(item, "area"),
+    });
+  }
+
+  return items;
+}
+
+function parseFacilityList(xml: string): Facility[] {
+  const items: Facility[] = [];
+  const dbRegex = /<db>([\s\S]*?)<\/db>/g;
+  let match;
+
+  while ((match = dbRegex.exec(xml)) !== null) {
+    const item = match[1];
+    items.push({
+      mt10id: extractXmlValue(item, "mt10id"),
+      fcltynm: extractXmlValue(item, "fcltynm"),
+      mt13cnt: extractXmlValue(item, "mt13cnt"),
+      fcltychartr: extractXmlValue(item, "fcltychartr"),
+      sidonm: extractXmlValue(item, "sidonm"),
+      gugunnm: extractXmlValue(item, "gugunnm"),
+      opende: extractXmlValue(item, "opende"),
+      seatscale: extractXmlValue(item, "seatscale"),
+      telno: extractXmlValue(item, "telno"),
+      relateurl: extractXmlValue(item, "relateurl"),
+      adres: extractXmlValue(item, "adres"),
+      la: extractXmlValue(item, "la"),
+      lo: extractXmlValue(item, "lo"),
+    });
+  }
+
+  return items;
+}
+
+// ===== 도구 구현 =====
+
+async function cultureGetBoxOffice(args: {
+  type?: string;
+  date?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const type = args.type || "daily";
+  const date = args.date || getYesterday();
+  const limit = Math.min(args.limit || 10, 10);
+  const format = args.response_format || "markdown";
+
+  try {
+    const endpoint = type === "weekly"
+      ? `http://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchWeeklyBoxOfficeList.json?key=${KOBIS_API_KEY}&targetDt=${date}&weekGb=0`
+      : `http://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json?key=${KOBIS_API_KEY}&targetDt=${date}`;
+
+    const response = await fetchWithTimeout(endpoint);
+    const data = await response.json();
+
+    const boxOfficeList = type === "weekly"
+      ? data.boxOfficeResult?.weeklyBoxOfficeList || []
+      : data.boxOfficeResult?.dailyBoxOfficeList || [];
+
+    const movies: BoxOfficeMovie[] = boxOfficeList.slice(0, limit);
+
+    if (format === "json") {
+      return JSON.stringify({
+        type,
+        date: formatDate(date),
+        movies: movies.map(m => ({
+          rank: m.rank,
+          title: m.movieNm,
+          openDate: formatDate(m.openDt),
+          audienceToday: formatNumber(m.audiCnt),
+          audienceTotal: formatNumber(m.audiAcc),
+          salesTotal: formatNumber(m.salesAcc),
+          movieCode: m.movieCd,
+        })),
+      }, null, 2);
+    }
+
+    const typeLabel = type === "weekly" ? "주간" : "일별";
+    let md = `## 🎬 ${typeLabel} 박스오피스 (${formatDate(date)})\n\n`;
+
+    if (movies.length === 0) {
+      return md + "조회된 영화가 없습니다.";
+    }
+
+    movies.forEach((m, idx) => {
+      const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${m.rank}.`;
+      md += `### ${medal} ${m.movieNm}\n`;
+      md += `- **개봉일**: ${formatDate(m.openDt)}\n`;
+      md += `- **당일 관객**: ${formatNumber(m.audiCnt)}명\n`;
+      md += `- **누적 관객**: ${formatNumber(m.audiAcc)}명\n`;
+      md += `- **누적 매출**: ${formatNumber(m.salesAcc)}원\n`;
+      md += `- **영화코드**: \`${m.movieCd}\`\n\n`;
+    });
+
+    md += "---\n> 💡 **Tip**: 영화 상세정보는 `culture_get_movie_detail` 도구를 사용하세요.\n";
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 박스오피스 조회 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureGetMovieDetail(args: {
+  movie_name?: string;
+  movie_code?: string;
+  response_format?: string;
+}): Promise<string> {
+  const format = args.response_format || "markdown";
+
+  try {
+    let movieCode = args.movie_code;
+
+    if (!movieCode && args.movie_name) {
+      const searchUrl = `http://www.kobis.or.kr/kobisopenapi/webservice/rest/movie/searchMovieList.json?key=${KOBIS_API_KEY}&movieNm=${encodeURIComponent(args.movie_name)}`;
+      const searchResponse = await fetchWithTimeout(searchUrl);
+      const searchData = await searchResponse.json();
+      const movieList = searchData.movieListResult?.movieList || [];
+
+      if (movieList.length === 0) {
+        return `❌ "${args.movie_name}" 영화를 찾을 수 없습니다.`;
+      }
+
+      movieCode = movieList[0].movieCd;
+    }
+
+    if (!movieCode) {
+      return "❌ movie_name 또는 movie_code 중 하나를 입력해주세요.";
+    }
+
+    const detailUrl = `http://www.kobis.or.kr/kobisopenapi/webservice/rest/movie/searchMovieInfo.json?key=${KOBIS_API_KEY}&movieCd=${movieCode}`;
+    const response = await fetchWithTimeout(detailUrl);
+    const data = await response.json();
+    const movie: MovieDetail = data.movieInfoResult?.movieInfo;
+
+    if (!movie) {
+      return `❌ 영화 정보를 찾을 수 없습니다. (코드: ${movieCode})`;
+    }
+
+    if (format === "json") {
+      return JSON.stringify({
+        code: movie.movieCd,
+        title: movie.movieNm,
+        titleEn: movie.movieNmEn,
+        runtime: movie.showTm,
+        openDate: formatDate(movie.openDt),
+        status: movie.prdtStatNm,
+        type: movie.typeNm,
+        nations: movie.nations?.map(n => n.nationNm) || [],
+        genres: movie.genres?.map(g => g.genreNm) || [],
+        directors: movie.directors?.map(d => d.peopleNm) || [],
+        actors: movie.actors?.slice(0, 10).map(a => ({ name: a.peopleNm, role: a.cast })) || [],
+        rating: movie.audits?.[0]?.watchGradeNm || "정보 없음",
+      }, null, 2);
+    }
+
+    let md = `## 🎬 ${movie.movieNm}\n\n`;
+
+    if (movie.movieNmEn) {
+      md += `*${movie.movieNmEn}*\n\n`;
+    }
+
+    md += `| 항목 | 내용 |\n|------|------|\n`;
+    md += `| **개봉일** | ${formatDate(movie.openDt)} |\n`;
+    md += `| **상영시간** | ${movie.showTm || "정보 없음"}분 |\n`;
+    md += `| **관람등급** | ${movie.audits?.[0]?.watchGradeNm || "정보 없음"} |\n`;
+    md += `| **장르** | ${movie.genres?.map(g => g.genreNm).join(", ") || "정보 없음"} |\n`;
+    md += `| **국가** | ${movie.nations?.map(n => n.nationNm).join(", ") || "정보 없음"} |\n`;
+    md += `| **유형** | ${movie.typeNm || "정보 없음"} |\n\n`;
+
+    if (movie.directors && movie.directors.length > 0) {
+      md += `### 🎥 감독\n${movie.directors.map(d => d.peopleNm).join(", ")}\n\n`;
+    }
+
+    if (movie.actors && movie.actors.length > 0) {
+      md += `### 🎭 출연진\n`;
+      movie.actors.slice(0, 10).forEach(a => {
+        md += `- **${a.peopleNm}**${a.cast ? ` (${a.cast} 역)` : ""}\n`;
+      });
+      md += "\n";
+    }
+
+    if (movie.companys && movie.companys.length > 0) {
+      const producers = movie.companys.filter(c => c.companyPartNm?.includes("제작"));
+      const distributors = movie.companys.filter(c => c.companyPartNm?.includes("배급"));
+
+      if (producers.length > 0) {
+        md += `### 🏢 제작사\n${producers.map(c => c.companyNm).join(", ")}\n\n`;
+      }
+      if (distributors.length > 0) {
+        md += `### 📦 배급사\n${distributors.map(c => c.companyNm).join(", ")}\n\n`;
+      }
+    }
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 영화 상세정보 조회 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureSearchPerformance(args: {
+  keyword?: string;
+  genre?: string;
+  region?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const limit = Math.min(args.limit || 10, 20);
+  const format = args.response_format || "markdown";
+
+  try {
+    let url = `http://www.kopis.or.kr/openApi/restful/pblprfr?service=${KOPIS_API_KEY}&stdate=${getToday()}&eddate=20261231&cpage=1&rows=${limit}`;
+
+    if (args.keyword) {
+      url += `&shprfnm=${encodeURIComponent(args.keyword)}`;
+    }
+    if (args.genre && GENRE_MAP[args.genre]) {
+      url += `&shcate=${GENRE_MAP[args.genre]}`;
+    }
+    if (args.region && REGION_MAP[args.region]) {
+      url += `&signgucode=${REGION_MAP[args.region]}`;
+    }
+
+    const response = await fetchWithTimeout(url);
+    const xml = await response.text();
+    const performances = parsePerformanceList(xml);
+
+    if (format === "json") {
+      return JSON.stringify({
+        keyword: args.keyword || null,
+        genre: args.genre || null,
+        region: args.region || null,
+        count: performances.length,
+        performances: performances.map(p => ({
+          id: p.mt20id,
+          name: p.prfnm,
+          period: `${p.prfpdfrom} ~ ${p.prfpdto}`,
+          venue: p.fcltynm,
+          genre: p.genrenm,
+          status: p.prfstate,
+          area: p.area,
+          poster: p.poster,
+        })),
+      }, null, 2);
+    }
+
+    let md = `## 🎭 공연 검색 결과\n\n`;
+
+    if (args.keyword) md += `> 검색어: "${args.keyword}"\n`;
+    if (args.genre) md += `> 장르: ${args.genre}\n`;
+    if (args.region) md += `> 지역: ${args.region}\n`;
+    md += `> ${performances.length}개 공연 발견\n\n`;
+
+    if (performances.length === 0) {
+      return md + "검색된 공연이 없습니다.";
+    }
+
+    performances.forEach((p, idx) => {
+      const statusEmoji = p.prfstate === "공연중" ? "🟢" : p.prfstate === "공연예정" ? "🟡" : "⚫";
+      md += `### ${idx + 1}. ${p.prfnm}\n`;
+      md += `- **기간**: ${p.prfpdfrom} ~ ${p.prfpdto}\n`;
+      md += `- **장소**: ${p.fcltynm}\n`;
+      md += `- **장르**: ${p.genrenm}\n`;
+      md += `- **상태**: ${statusEmoji} ${p.prfstate}\n`;
+      md += `- **공연ID**: \`${p.mt20id}\`\n\n`;
+    });
+
+    md += "---\n> 💡 **Tip**: 공연 상세정보는 `culture_get_performance_detail` 도구에 공연ID를 입력하세요.\n";
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 공연 검색 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureGetPerformanceDetail(args: {
+  performance_id: string;
+  response_format?: string;
+}): Promise<string> {
+  const format = args.response_format || "markdown";
+
+  try {
+    const url = `http://www.kopis.or.kr/openApi/restful/pblprfr/${args.performance_id}?service=${KOPIS_API_KEY}`;
+    const response = await fetchWithTimeout(url);
+    const xml = await response.text();
+
+    const p: PerformanceDetail = {
+      mt20id: extractXmlValue(xml, "mt20id"),
+      prfnm: extractXmlValue(xml, "prfnm"),
+      prfpdfrom: extractXmlValue(xml, "prfpdfrom"),
+      prfpdto: extractXmlValue(xml, "prfpdto"),
+      fcltynm: extractXmlValue(xml, "fcltynm"),
+      prfcast: extractXmlValue(xml, "prfcast"),
+      prfcrew: extractXmlValue(xml, "prfcrew"),
+      prfruntime: extractXmlValue(xml, "prfruntime"),
+      prfage: extractXmlValue(xml, "prfage"),
+      pcseguidance: extractXmlValue(xml, "pcseguidance"),
+      poster: extractXmlValue(xml, "poster"),
+      genrenm: extractXmlValue(xml, "genrenm"),
+      prfstate: extractXmlValue(xml, "prfstate"),
+      dtguidance: extractXmlValue(xml, "dtguidance"),
+    };
+
+    if (!p.prfnm) {
+      return `❌ 공연 정보를 찾을 수 없습니다. (ID: ${args.performance_id})`;
+    }
+
+    if (format === "json") {
+      return JSON.stringify({
+        id: p.mt20id,
+        name: p.prfnm,
+        period: `${p.prfpdfrom} ~ ${p.prfpdto}`,
+        venue: p.fcltynm,
+        cast: p.prfcast,
+        crew: p.prfcrew,
+        runtime: p.prfruntime,
+        ageLimit: p.prfage,
+        price: p.pcseguidance,
+        poster: p.poster,
+        genre: p.genrenm,
+        status: p.prfstate,
+        schedule: p.dtguidance,
+      }, null, 2);
+    }
+
+    const statusEmoji = p.prfstate === "공연중" ? "🟢" : p.prfstate === "공연예정" ? "🟡" : "⚫";
+
+    let md = `## 🎭 ${p.prfnm}\n\n`;
+    md += `${statusEmoji} **${p.prfstate}** | ${p.genrenm}\n\n`;
+
+    md += `| 항목 | 내용 |\n|------|------|\n`;
+    md += `| **공연기간** | ${p.prfpdfrom} ~ ${p.prfpdto} |\n`;
+    md += `| **공연장** | ${p.fcltynm} |\n`;
+    md += `| **관람시간** | ${p.prfruntime || "정보 없음"} |\n`;
+    md += `| **관람연령** | ${p.prfage || "정보 없음"} |\n\n`;
+
+    if (p.pcseguidance) {
+      md += `### 💰 티켓가격\n${p.pcseguidance.replace(/,/g, "\n")}\n\n`;
+    }
+
+    if (p.dtguidance) {
+      md += `### 📅 공연시간\n${p.dtguidance}\n\n`;
+    }
+
+    if (p.prfcast) {
+      md += `### 🎭 출연진\n${p.prfcast}\n\n`;
+    }
+
+    if (p.prfcrew) {
+      md += `### 🎬 제작진\n${p.prfcrew}\n\n`;
+    }
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 공연 상세정보 조회 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureGetFacilityInfo(args: {
+  facility_name?: string;
+  region?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const limit = Math.min(args.limit || 10, 20);
+  const format = args.response_format || "markdown";
+
+  try {
+    let url = `http://www.kopis.or.kr/openApi/restful/prfplc?service=${KOPIS_API_KEY}&cpage=1&rows=${limit}`;
+
+    if (args.facility_name) {
+      url += `&shprfnmfct=${encodeURIComponent(args.facility_name)}`;
+    }
+    if (args.region && REGION_MAP[args.region]) {
+      url += `&signgucode=${REGION_MAP[args.region]}`;
+    }
+
+    const response = await fetchWithTimeout(url);
+    const xml = await response.text();
+    const facilities = parseFacilityList(xml);
+
+    if (format === "json") {
+      return JSON.stringify({
+        keyword: args.facility_name || null,
+        region: args.region || null,
+        count: facilities.length,
+        facilities: facilities.map(f => ({
+          id: f.mt10id,
+          name: f.fcltynm,
+          type: f.fcltychartr,
+          area: `${f.sidonm} ${f.gugunnm}`,
+          address: f.adres,
+          seatCount: f.seatscale,
+          tel: f.telno,
+          website: f.relateurl,
+        })),
+      }, null, 2);
+    }
+
+    let md = `## 🏛️ 공연장 검색 결과\n\n`;
+
+    if (args.facility_name) md += `> 검색어: "${args.facility_name}"\n`;
+    if (args.region) md += `> 지역: ${args.region}\n`;
+    md += `> ${facilities.length}개 공연장 발견\n\n`;
+
+    if (facilities.length === 0) {
+      return md + "검색된 공연장이 없습니다.";
+    }
+
+    facilities.forEach((f, idx) => {
+      md += `### ${idx + 1}. ${f.fcltynm}\n`;
+      md += `- **유형**: ${f.fcltychartr || "정보 없음"}\n`;
+      md += `- **위치**: ${f.sidonm} ${f.gugunnm}\n`;
+      md += `- **주소**: ${f.adres || "정보 없음"}\n`;
+      md += `- **좌석수**: ${f.seatscale || "정보 없음"}석\n`;
+      if (f.telno) md += `- **전화**: ${f.telno}\n`;
+      if (f.relateurl) md += `- **웹사이트**: ${f.relateurl}\n`;
+      md += "\n";
+    });
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 공연장 검색 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureGetRecommendations(args: {
+  region?: string;
+  response_format?: string;
+}): Promise<string> {
+  const region = args.region || "서울";
+  const format = args.response_format || "markdown";
+
+  try {
+    const boxOfficeResult = await cultureGetBoxOffice({ type: "daily", limit: 5, response_format: "json" });
+    const boxOfficeData = JSON.parse(boxOfficeResult);
+
+    const musicalResult = await cultureSearchPerformance({ genre: "뮤지컬", region, limit: 5, response_format: "json" });
+    const musicalData = JSON.parse(musicalResult);
+
+    const theaterResult = await cultureSearchPerformance({ genre: "연극", region, limit: 5, response_format: "json" });
+    const theaterData = JSON.parse(theaterResult);
+
+    if (format === "json") {
+      return JSON.stringify({
+        date: formatDate(getToday()),
+        region,
+        movies: boxOfficeData.movies || [],
+        musicals: musicalData.performances || [],
+        theaters: theaterData.performances || [],
+      }, null, 2);
+    }
+
+    let md = `## ✨ 오늘의 추천 (${formatDate(getToday())})\n\n`;
+
+    md += `### 🎬 인기 영화 TOP 5\n\n`;
+    if (boxOfficeData.movies && boxOfficeData.movies.length > 0) {
+      boxOfficeData.movies.forEach((m: any, idx: number) => {
+        const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
+        md += `${medal} **${m.title}** - 누적 ${m.audienceTotal}명\n`;
+      });
+    } else {
+      md += "데이터를 불러올 수 없습니다.\n";
+    }
+
+    md += `\n### 🎭 ${region} 뮤지컬\n\n`;
+    if (musicalData.performances && musicalData.performances.length > 0) {
+      musicalData.performances.slice(0, 5).forEach((p: any, idx: number) => {
+        md += `${idx + 1}. **${p.name}** @ ${p.venue}\n`;
+      });
+    } else {
+      md += "진행 중인 뮤지컬이 없습니다.\n";
+    }
+
+    md += `\n### 🎪 ${region} 연극\n\n`;
+    if (theaterData.performances && theaterData.performances.length > 0) {
+      theaterData.performances.slice(0, 5).forEach((p: any, idx: number) => {
+        md += `${idx + 1}. **${p.name}** @ ${p.venue}\n`;
+      });
+    } else {
+      md += "진행 중인 연극이 없습니다.\n";
+    }
+
+    md += "\n---\n> 💡 **Tip**: 상세정보는 각 도구를 사용해 확인하세요!\n";
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 추천 정보 조회 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+// ===== JSON-RPC 헬퍼 =====
+
+function jsonRpcResponse(id: number | string | null, result: any) {
+  return { jsonrpc: "2.0", id, result };
+}
+
+function jsonRpcError(id: number | string | null, code: number, message: string) {
+  return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+// ===== 랜딩페이지 HTML =====
+
+const LANDING_PAGE_HTML = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="영화 박스오피스, 공연/전시 정보를 AI로 조회하는 MCP 서버">
+  <meta property="og:title" content="Korea Culture MCP - 영화/공연 AI 조회">
+  <meta property="og:description" content="오늘 뭐 볼까? 라고 물으면 바로 답해드립니다.">
+  <title>Korea Culture MCP - 영화/공연 AI 조회</title>
+  <style>:root{--primary:#dc2626;--primary-dark:#b91c1c;--secondary:#f59e0b;--bg:#f8fafc;--card:#fff;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}.container{max-width:1200px;margin:0 auto;padding:0 20px}header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:80px 0 100px;text-align:center}.logo{font-size:3rem;margin-bottom:10px}h1{font-size:2.5rem;font-weight:700;margin-bottom:15px}.tagline{font-size:1.3rem;opacity:.9;margin-bottom:30px}.badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;background:rgba(255,255,255,.15);padding:8px 16px;border-radius:20px;font-size:.9rem;text-decoration:none;color:#fff;transition:background .2s}.badge:hover{background:rgba(255,255,255,.25)}.demo-section{margin-top:-50px;margin-bottom:60px}.demo-card{background:var(--card);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.1);padding:30px;max-width:700px;margin:0 auto}.demo-card h3{color:var(--primary);margin-bottom:15px;font-size:1.1rem}.chat-bubble{background:#fef2f2;border-radius:12px;padding:15px 20px;margin-bottom:15px;display:inline-block}.response{background:#f1f5f9;border-radius:12px;padding:20px;font-family:Consolas,monospace;font-size:.9rem;white-space:pre-line;line-height:1.8}.features{padding:60px 0}.features h2{text-align:center;font-size:2rem;margin-bottom:50px}.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:25px}.feature-card{background:var(--card);border-radius:12px;padding:25px;border:1px solid var(--border);transition:transform .2s,box-shadow .2s}.feature-card:hover{transform:translateY(-5px);box-shadow:0 10px 30px rgba(0,0,0,.08)}.feature-icon{font-size:2.5rem;margin-bottom:15px}.feature-card h3{font-size:1.1rem;margin-bottom:10px}.feature-card code{display:block;background:#f1f5f9;padding:8px 12px;border-radius:6px;font-size:.85rem;color:var(--primary);margin-bottom:10px}.feature-card p{color:var(--text-muted);font-size:.95rem}.cta{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:80px 0;text-align:center}.cta h2{font-size:2rem;margin-bottom:20px}.cta p{opacity:.8;margin-bottom:30px;font-size:1.1rem}.cta-buttons{display:flex;gap:15px;justify-content:center;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:8px;font-size:1rem;font-weight:600;text-decoration:none;transition:transform .2s}.btn:hover{transform:translateY(-2px)}.btn-primary{background:var(--secondary);color:#fff}.btn-secondary{background:#fff;color:var(--text)}footer{background:#1e293b;color:#94a3b8;padding:40px 0;text-align:center}footer a{color:#94a3b8;text-decoration:none}footer a:hover{color:#fff}.endpoint{background:rgba(255,255,255,.1);display:inline-block;padding:10px 20px;border-radius:6px;font-family:monospace;margin:15px 0}@media(max-width:768px){header{padding:60px 0 80px}h1{font-size:1.8rem}.tagline{font-size:1.1rem}.features-grid{grid-template-columns:1fr}}</style>
+</head>
+<body>
+  <header><div class="container"><div class="logo">🎬🎭🎪</div><h1>Korea Culture MCP</h1><p class="tagline">"오늘 뭐 볼까?" 라고 물으면 바로 답해드립니다</p><div class="badges"><a href="https://playmcp.kakao.com" class="badge" target="_blank">PlayMCP 등록</a><a href="https://github.com/yonghwan1106/korea-culture-mcp" class="badge" target="_blank">GitHub</a><span class="badge">MCP Compatible</span><span class="badge">실시간 데이터</span></div></div></header>
+  <section class="demo-section"><div class="container"><div class="demo-card"><h3>사용 예시</h3><div class="chat-bubble">오늘 영화 박스오피스 순위 알려줘</div><div class="response">🎬 일별 박스오피스
+
+🥇 하얼빈 - 누적 5,234,567명
+🥈 위키드 - 누적 3,456,789명
+🥉 소방관 - 누적 2,345,678명</div></div></div></section>
+  <section class="features"><div class="container"><h2>6개 도구로 문화생활 완벽 커버</h2><div class="features-grid"><div class="feature-card"><div class="feature-icon">🎬</div><h3>영화 박스오피스</h3><code>culture_get_box_office</code><p>일별/주간 박스오피스 순위와 관객수 조회</p></div><div class="feature-card"><div class="feature-icon">🎥</div><h3>영화 상세정보</h3><code>culture_get_movie_detail</code><p>감독, 배우, 관람등급, 줄거리 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🎭</div><h3>공연 검색</h3><code>culture_search_performance</code><p>연극, 뮤지컬, 콘서트 등 장르별 공연 검색</p></div><div class="feature-card"><div class="feature-icon">🎪</div><h3>공연 상세정보</h3><code>culture_get_performance_detail</code><p>출연진, 티켓가격, 공연시간 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🏛️</div><h3>공연장 정보</h3><code>culture_get_facility_info</code><p>공연장 위치, 좌석수, 연락처 조회</p></div><div class="feature-card"><div class="feature-icon">✨</div><h3>오늘의 추천</h3><code>culture_get_recommendations</code><p>인기 영화 + 공연 통합 추천</p></div></div></div></section>
+  <section class="cta"><div class="container"><h2>지금 바로 사용해보세요</h2><p>PlayMCP에서 도구함에 추가하거나 Claude Desktop에 연결하세요</p><div class="cta-buttons"><a href="https://playmcp.kakao.com" class="btn btn-primary" target="_blank">PlayMCP에서 추가</a><a href="https://github.com/yonghwan1106/korea-culture-mcp" class="btn btn-secondary" target="_blank">GitHub 저장소</a></div></div></section>
+  <footer><div class="container"><p><strong>Korea Culture MCP</strong> - 영화/공연 정보, AI에게 물어보세요</p><div class="endpoint">MCP Endpoint: https://korea-culture-mcp.vercel.app/mcp</div><p style="margin-top:20px"><a href="https://github.com/yonghwan1106/korea-culture-mcp">GitHub</a> · <a href="https://playmcp.kakao.com">PlayMCP</a> · MIT License</p></div></footer>
+</body>
+</html>`;
+
+// ===== Vercel 핸들러 =====
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, x-session-id, Accept");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  const urlPath = req.url?.split("?")[0] || "/";
+
+  if (req.method === "GET" && (urlPath === "/" || urlPath === "")) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(LANDING_PAGE_HTML);
+  }
+
+  if (req.method === "GET") {
+    return res.status(200).json({
+      status: "ok",
+      name: SERVER_INFO.name,
+      version: SERVER_INFO.version,
+      tools: TOOLS.map((t) => t.name),
+    });
+  }
+
+  if (req.method === "POST") {
+    try {
+      const body = req.body;
+      const { jsonrpc, id, method, params } = body;
+
+      if (jsonrpc !== "2.0") {
+        return res.status(400).json(jsonRpcError(id, -32600, "Invalid JSON-RPC version"));
+      }
+
+      let result: any;
+
+      switch (method) {
+        case "initialize":
+          result = {
+            protocolVersion: params?.protocolVersion || "2024-11-05",
+            capabilities: {
+              tools: { listChanged: false },
+            },
+            serverInfo: SERVER_INFO,
+          };
+          break;
+
+        case "notifications/initialized":
+          return res.status(200).json(jsonRpcResponse(id, {}));
+
+        case "tools/list":
+          result = { tools: TOOLS };
+          break;
+
+        case "tools/call": {
+          const toolName = params?.name;
+          const toolArgs: ToolArguments = params?.arguments || {};
+
+          let toolResult: string;
+
+          switch (toolName) {
+            case "culture_get_box_office":
+              toolResult = await cultureGetBoxOffice(toolArgs);
+              break;
+            case "culture_get_movie_detail":
+              toolResult = await cultureGetMovieDetail(toolArgs);
+              break;
+            case "culture_search_performance":
+              toolResult = await cultureSearchPerformance(toolArgs);
+              break;
+            case "culture_get_performance_detail":
+              toolResult = await cultureGetPerformanceDetail(toolArgs as { performance_id: string; response_format?: string });
+              break;
+            case "culture_get_facility_info":
+              toolResult = await cultureGetFacilityInfo(toolArgs);
+              break;
+            case "culture_get_recommendations":
+              toolResult = await cultureGetRecommendations(toolArgs);
+              break;
+            default:
+              return res.status(400).json(jsonRpcError(id, -32601, `Unknown tool: ${toolName}`));
+          }
+
+          result = {
+            content: [{ type: "text", text: toolResult }],
+          };
+          break;
+        }
+
+        case "ping":
+          result = {};
+          break;
+
+        default:
+          return res.status(400).json(jsonRpcError(id, -32601, `Unknown method: ${method}`));
+      }
+
+      return res.status(200).json(jsonRpcResponse(id, result));
+    } catch (error) {
+      console.error("MCP Handler Error:", error);
+      return res.status(500).json(jsonRpcError(null, -32603, getErrorMessage(error)));
+    }
+  }
+
+  return res.status(405).json({ error: "Method not allowed" });
+}
