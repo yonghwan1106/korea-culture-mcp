@@ -1,15 +1,18 @@
 /**
  * Korea Culture MCP Server - Vercel Serverless Handler
  *
- * 영화 박스오피스, 공연/전시 정보를 AI로 조회하는 MCP 서버
+ * 영화, 공연, 축제, 관광, 맛집 등 한국 문화 정보를 AI로 조회하는 MCP 서버
  *
- * 제공 도구:
+ * 제공 도구 (9개):
  * - culture_get_box_office: 일별/주간 영화 박스오피스
  * - culture_get_movie_detail: 영화 상세정보
  * - culture_search_performance: 공연 검색
  * - culture_get_performance_detail: 공연 상세정보
  * - culture_get_facility_info: 공연장 정보
  * - culture_get_recommendations: 오늘의 추천
+ * - culture_search_festival: 축제/행사 검색 (TourAPI)
+ * - culture_search_tourist_spot: 관광지 검색 (TourAPI)
+ * - culture_search_restaurant: 맛집/음식점 검색 (TourAPI)
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -123,6 +126,69 @@ interface HallInfo {
   stagehechat: string;
 }
 
+// TourAPI 타입
+interface TourItem {
+  contentid: string;
+  contenttypeid: string;
+  title: string;
+  addr1: string;
+  addr2?: string;
+  areacode: string;
+  sigungucode?: string;
+  cat1?: string;
+  cat2?: string;
+  cat3?: string;
+  firstimage?: string;
+  firstimage2?: string;
+  mapx?: string;
+  mapy?: string;
+  tel?: string;
+  eventstartdate?: string;
+  eventenddate?: string;
+  eventplace?: string;
+  readcount?: string;
+}
+
+interface TourDetailCommon {
+  contentid: string;
+  contenttypeid: string;
+  title: string;
+  overview?: string;
+  homepage?: string;
+  tel?: string;
+  addr1?: string;
+  addr2?: string;
+  mapx?: string;
+  mapy?: string;
+  firstimage?: string;
+}
+
+interface TourDetailIntro {
+  // 축제/행사 (contenttypeid: 15)
+  eventstartdate?: string;
+  eventenddate?: string;
+  eventplace?: string;
+  eventhomepage?: string;
+  playtime?: string;
+  program?: string;
+  usetimefestival?: string;
+  sponsor1?: string;
+  sponsor1tel?: string;
+  // 관광지 (contenttypeid: 12)
+  infocenter?: string;
+  restdate?: string;
+  usetime?: string;
+  parking?: string;
+  // 음식점 (contenttypeid: 39)
+  opentimefood?: string;
+  restdatefood?: string;
+  firstmenu?: string;
+  treatmenu?: string;
+  packing?: string;
+  parkingfood?: string;
+  reservationfood?: string;
+}
+
 interface ToolArguments {
   type?: string;
   date?: string;
@@ -150,12 +216,16 @@ function getErrorMessage(error: unknown): string {
 
 const KOBIS_API_KEY = process.env.KOBIS_API_KEY;
 const KOPIS_API_KEY = process.env.KOPIS_API_KEY;
+const TOUR_API_KEY = process.env.TOUR_API_KEY;
 
 if (!KOBIS_API_KEY) {
   console.error("KOBIS_API_KEY 환경 변수가 설정되지 않았습니다.");
 }
 if (!KOPIS_API_KEY) {
   console.error("KOPIS_API_KEY 환경 변수가 설정되지 않았습니다.");
+}
+if (!TOUR_API_KEY) {
+  console.error("TOUR_API_KEY 환경 변수가 설정되지 않았습니다.");
 }
 
 // ===== 상수 =====
@@ -198,6 +268,41 @@ const REGION_MAP: Record<string, string> = {
   "경남": "48",
   "제주": "50",
 };
+
+// TourAPI 지역 코드 (공공데이터포털)
+const TOUR_AREA_CODE: Record<string, string> = {
+  "서울": "1",
+  "인천": "2",
+  "대전": "3",
+  "대구": "4",
+  "광주": "5",
+  "부산": "6",
+  "울산": "7",
+  "세종": "8",
+  "경기": "31",
+  "강원": "32",
+  "충북": "33",
+  "충남": "34",
+  "경북": "35",
+  "경남": "36",
+  "전북": "37",
+  "전남": "38",
+  "제주": "39",
+};
+
+// TourAPI 콘텐츠 타입
+const TOUR_CONTENT_TYPE: Record<string, string> = {
+  "관광지": "12",
+  "문화시설": "14",
+  "축제행사": "15",
+  "여행코스": "25",
+  "레포츠": "28",
+  "숙박": "32",
+  "쇼핑": "38",
+  "음식점": "39",
+};
+
+const TOUR_API_BASE = "http://apis.data.go.kr/B551011/KorService1";
 
 // ===== 도구 정의 =====
 
@@ -340,6 +445,97 @@ const TOOLS = [
         region: {
           type: "string",
           description: "공연 추천 지역 (예: 서울). 기본값: 서울",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  // TourAPI 도구들
+  {
+    name: "culture_search_festival",
+    description: "전국의 축제와 행사를 검색합니다. 지역별, 월별로 진행 중이거나 예정된 축제를 찾을 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "검색 키워드 (축제명)",
+        },
+        region: {
+          type: "string",
+          description: "지역명 (예: 서울, 부산, 제주 등)",
+        },
+        month: {
+          type: "string",
+          description: "조회할 월 (1-12). 기본값: 현재 월",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 축제 수 (1-20). 기본값: 10",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_search_tourist_spot",
+    description: "전국의 관광지와 명소를 검색합니다. 지역별 인기 관광지, 문화시설, 테마여행지를 찾을 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "검색 키워드 (관광지명)",
+        },
+        region: {
+          type: "string",
+          description: "지역명 (예: 서울, 부산, 제주 등)",
+        },
+        category: {
+          type: "string",
+          enum: ["관광지", "문화시설", "레포츠", "쇼핑"],
+          description: "관광지 유형. 기본값: 관광지",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 관광지 수 (1-20). 기본값: 10",
+        },
+        response_format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "응답 형식. 기본값: markdown",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "culture_search_restaurant",
+    description: "전국의 맛집과 음식점을 검색합니다. 지역별 인기 음식점, 한식/양식/중식 등 다양한 맛집을 찾을 수 있습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "검색 키워드 (음식점명 또는 음식 종류)",
+        },
+        region: {
+          type: "string",
+          description: "지역명 (예: 서울, 부산, 전주 등)",
+        },
+        limit: {
+          type: "number",
+          description: "조회할 음식점 수 (1-20). 기본값: 10",
         },
         response_format: {
           type: "string",
@@ -1053,6 +1249,239 @@ async function cultureGetRecommendations(args: {
     return truncateResponse(md);
   } catch (error) {
     return `❌ 추천 정보 조회 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+// ===== TourAPI 도구 구현 =====
+
+async function cultureSearchFestival(args: {
+  keyword?: string;
+  region?: string;
+  month?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const limit = Math.min(args.limit || 10, 20);
+  const format = args.response_format || "markdown";
+  const currentMonth = args.month || String(new Date().getMonth() + 1).padStart(2, "0");
+  const year = new Date().getFullYear();
+
+  // 해당 월의 시작일과 종료일
+  const eventStartDate = `${year}${currentMonth.padStart(2, "0")}01`;
+  const lastDay = new Date(year, parseInt(currentMonth), 0).getDate();
+  const eventEndDate = `${year}${currentMonth.padStart(2, "0")}${lastDay}`;
+
+  try {
+    let url = `${TOUR_API_BASE}/searchFestival1?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=A&eventStartDate=${eventStartDate}&eventEndDate=${eventEndDate}`;
+
+    if (args.region && TOUR_AREA_CODE[args.region]) {
+      url += `&areaCode=${TOUR_AREA_CODE[args.region]}`;
+    }
+
+    const response = await fetchWithTimeout(url);
+    const data = await response.json();
+
+    let items: TourItem[] = data.response?.body?.items?.item || [];
+    if (!Array.isArray(items)) items = items ? [items] : [];
+
+    // 키워드 필터링
+    if (args.keyword) {
+      const keyword = args.keyword.toLowerCase();
+      items = items.filter(item => item.title?.toLowerCase().includes(keyword));
+    }
+
+    if (format === "json") {
+      return JSON.stringify({
+        keyword: args.keyword || null,
+        region: args.region || null,
+        month: currentMonth,
+        count: items.length,
+        festivals: items.map(item => ({
+          id: item.contentid,
+          title: item.title,
+          address: `${item.addr1 || ""} ${item.addr2 || ""}`.trim(),
+          startDate: item.eventstartdate,
+          endDate: item.eventenddate,
+          tel: item.tel,
+          image: item.firstimage,
+        })),
+      }, null, 2);
+    }
+
+    let md = `## 🎪 축제/행사 검색 결과\n\n`;
+    md += `> ${year}년 ${currentMonth}월 축제\n`;
+    if (args.keyword) md += `> 검색어: "${args.keyword}"\n`;
+    if (args.region) md += `> 지역: ${args.region}\n`;
+    md += `> ${items.length}개 축제 발견\n\n`;
+
+    if (items.length === 0) {
+      return md + "검색된 축제가 없습니다. 다른 월이나 지역을 검색해보세요.";
+    }
+
+    items.forEach((item, idx) => {
+      const startDate = item.eventstartdate ? `${item.eventstartdate.slice(0,4)}.${item.eventstartdate.slice(4,6)}.${item.eventstartdate.slice(6,8)}` : "";
+      const endDate = item.eventenddate ? `${item.eventenddate.slice(0,4)}.${item.eventenddate.slice(4,6)}.${item.eventenddate.slice(6,8)}` : "";
+
+      md += `### ${idx + 1}. ${item.title}\n\n`;
+      md += `| 항목 | 내용 |\n|------|------|\n`;
+      if (startDate && endDate) md += `| **기간** | ${startDate} ~ ${endDate} |\n`;
+      if (item.addr1) md += `| **장소** | ${item.addr1} ${item.addr2 || ""} |\n`;
+      if (item.tel) md += `| **연락처** | ${item.tel} |\n`;
+      md += "\n";
+    });
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 축제 검색 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureSearchTouristSpot(args: {
+  keyword?: string;
+  region?: string;
+  category?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const limit = Math.min(args.limit || 10, 20);
+  const format = args.response_format || "markdown";
+  const contentTypeId = TOUR_CONTENT_TYPE[args.category || "관광지"] || "12";
+
+  try {
+    let url: string;
+
+    if (args.keyword) {
+      // 키워드 검색
+      url = `${TOUR_API_BASE}/searchKeyword1?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
+    } else {
+      // 지역 기반 검색
+      url = `${TOUR_API_BASE}/areaBasedList1?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&contentTypeId=${contentTypeId}`;
+    }
+
+    if (args.region && TOUR_AREA_CODE[args.region]) {
+      url += `&areaCode=${TOUR_AREA_CODE[args.region]}`;
+    }
+
+    const response = await fetchWithTimeout(url);
+    const data = await response.json();
+
+    let items: TourItem[] = data.response?.body?.items?.item || [];
+    if (!Array.isArray(items)) items = items ? [items] : [];
+
+    if (format === "json") {
+      return JSON.stringify({
+        keyword: args.keyword || null,
+        region: args.region || null,
+        category: args.category || "관광지",
+        count: items.length,
+        spots: items.map(item => ({
+          id: item.contentid,
+          title: item.title,
+          address: `${item.addr1 || ""} ${item.addr2 || ""}`.trim(),
+          tel: item.tel,
+          image: item.firstimage,
+          mapx: item.mapx,
+          mapy: item.mapy,
+        })),
+      }, null, 2);
+    }
+
+    const categoryName = args.category || "관광지";
+    let md = `## 🗺️ ${categoryName} 검색 결과\n\n`;
+    if (args.keyword) md += `> 검색어: "${args.keyword}"\n`;
+    if (args.region) md += `> 지역: ${args.region}\n`;
+    md += `> ${items.length}개 ${categoryName} 발견\n\n`;
+
+    if (items.length === 0) {
+      return md + `검색된 ${categoryName}이(가) 없습니다.`;
+    }
+
+    items.forEach((item, idx) => {
+      md += `### ${idx + 1}. ${item.title}\n\n`;
+      md += `| 항목 | 내용 |\n|------|------|\n`;
+      if (item.addr1) md += `| **주소** | ${item.addr1} ${item.addr2 || ""} |\n`;
+      if (item.tel) md += `| **연락처** | ${item.tel} |\n`;
+      if (item.mapx && item.mapy) {
+        md += `| **지도** | [카카오맵에서 보기](https://map.kakao.com/link/map/${encodeURIComponent(item.title)},${item.mapy},${item.mapx}) |\n`;
+      }
+      md += "\n";
+    });
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 관광지 검색 실패: ${getErrorMessage(error)}`;
+  }
+}
+
+async function cultureSearchRestaurant(args: {
+  keyword?: string;
+  region?: string;
+  limit?: number;
+  response_format?: string;
+}): Promise<string> {
+  const limit = Math.min(args.limit || 10, 20);
+  const format = args.response_format || "markdown";
+  const contentTypeId = "39"; // 음식점
+
+  try {
+    let url: string;
+
+    if (args.keyword) {
+      url = `${TOUR_API_BASE}/searchKeyword1?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&keyword=${encodeURIComponent(args.keyword)}&contentTypeId=${contentTypeId}`;
+    } else {
+      url = `${TOUR_API_BASE}/areaBasedList1?serviceKey=${TOUR_API_KEY}&numOfRows=${limit}&pageNo=1&MobileOS=ETC&MobileApp=KoreaCultureMCP&_type=json&listYN=Y&arrange=P&contentTypeId=${contentTypeId}`;
+    }
+
+    if (args.region && TOUR_AREA_CODE[args.region]) {
+      url += `&areaCode=${TOUR_AREA_CODE[args.region]}`;
+    }
+
+    const response = await fetchWithTimeout(url);
+    const data = await response.json();
+
+    let items: TourItem[] = data.response?.body?.items?.item || [];
+    if (!Array.isArray(items)) items = items ? [items] : [];
+
+    if (format === "json") {
+      return JSON.stringify({
+        keyword: args.keyword || null,
+        region: args.region || null,
+        count: items.length,
+        restaurants: items.map(item => ({
+          id: item.contentid,
+          title: item.title,
+          address: `${item.addr1 || ""} ${item.addr2 || ""}`.trim(),
+          tel: item.tel,
+          image: item.firstimage,
+          mapx: item.mapx,
+          mapy: item.mapy,
+        })),
+      }, null, 2);
+    }
+
+    let md = `## 🍽️ 맛집/음식점 검색 결과\n\n`;
+    if (args.keyword) md += `> 검색어: "${args.keyword}"\n`;
+    if (args.region) md += `> 지역: ${args.region}\n`;
+    md += `> ${items.length}개 음식점 발견\n\n`;
+
+    if (items.length === 0) {
+      return md + "검색된 음식점이 없습니다.";
+    }
+
+    items.forEach((item, idx) => {
+      md += `### ${idx + 1}. ${item.title}\n\n`;
+      md += `| 항목 | 내용 |\n|------|------|\n`;
+      if (item.addr1) md += `| **주소** | ${item.addr1} ${item.addr2 || ""} |\n`;
+      if (item.tel) md += `| **연락처** | ${item.tel} |\n`;
+      if (item.mapx && item.mapy) {
+        md += `| **지도** | [카카오맵에서 보기](https://map.kakao.com/link/map/${encodeURIComponent(item.title)},${item.mapy},${item.mapx}) |\n`;
+      }
+      md += "\n";
+    });
+
+    return truncateResponse(md);
+  } catch (error) {
+    return `❌ 음식점 검색 실패: ${getErrorMessage(error)}`;
   }
 }
 
@@ -1843,6 +2272,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               break;
             case "culture_get_recommendations":
               toolResult = await cultureGetRecommendations(toolArgs);
+              break;
+            case "culture_search_festival":
+              toolResult = await cultureSearchFestival(toolArgs);
+              break;
+            case "culture_search_tourist_spot":
+              toolResult = await cultureSearchTouristSpot(toolArgs);
+              break;
+            case "culture_search_restaurant":
+              toolResult = await cultureSearchRestaurant(toolArgs);
               break;
             default:
               return res.status(400).json(jsonRpcError(id, -32601, `Unknown tool: ${toolName}`));
