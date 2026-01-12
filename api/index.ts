@@ -1437,14 +1437,7 @@ async function cultureSearchRestaurant(args: {
     }
 
     const response = await fetchWithTimeout(url);
-    const rawText = await response.text();
-
-    // 디버그: raw 응답 확인
-    if (args.response_format === "debug") {
-      return `🔍 DEBUG:\nURL: ${url.replace(TOUR_API_KEY, "***")}\n\nResponse:\n${rawText.substring(0, 1000)}`;
-    }
-
-    const data = JSON.parse(rawText);
+    const data = await response.json();
 
     let items: TourItem[] = data.response?.body?.items?.item || [];
     if (!Array.isArray(items)) items = items ? [items] : [];
