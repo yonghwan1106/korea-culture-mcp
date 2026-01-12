@@ -303,7 +303,7 @@ const TOUR_CONTENT_TYPE: Record<string, string> = {
   "음식점": "39",
 };
 
-const TOUR_API_BASE = "http://apis.data.go.kr/B551011/KorService2";
+const TOUR_API_BASE = "https://apis.data.go.kr/B551011/KorService2";
 
 // ===== 도구 정의 =====
 
