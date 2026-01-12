@@ -366,6 +366,12 @@ function extractXmlValue(xml: string, tag: string): string {
   return match ? (match[1] || match[2] || "").trim() : "";
 }
 
+function extractXmlArray(xml: string, itemTag: string): string[] {
+  const regex = new RegExp(`<${itemTag}><!\\[CDATA\\[(.+?)\\]\\]></${itemTag}>|<${itemTag}>(.+?)</${itemTag}>`, "gs");
+  const matches = [...xml.matchAll(regex)];
+  return matches.map(m => (m[1] || m[2] || "").trim());
+}
+
 function parsePerformanceList(xml: string): Performance[] {
   const items: Performance[] = [];
   const dbRegex = /<db>([\s\S]*?)<\/db>/g;
@@ -495,6 +501,7 @@ async function cultureGetMovieDetail(args: {
   try {
     let movieCode = args.movie_code;
 
+    // 영화명으로 검색하여 코드 찾기
     if (!movieCode && args.movie_name) {
       const searchUrl = `http://www.kobis.or.kr/kobisopenapi/webservice/rest/movie/searchMovieList.json?key=${KOBIS_API_KEY}&movieNm=${encodeURIComponent(args.movie_name)}`;
       const searchResponse = await fetchWithTimeout(searchUrl);
@@ -816,12 +823,15 @@ async function cultureGetRecommendations(args: {
   const format = args.response_format || "markdown";
 
   try {
+    // 박스오피스 TOP 5
     const boxOfficeResult = await cultureGetBoxOffice({ type: "daily", limit: 5, response_format: "json" });
     const boxOfficeData = JSON.parse(boxOfficeResult);
 
+    // 뮤지컬 공연 TOP 5
     const musicalResult = await cultureSearchPerformance({ genre: "뮤지컬", region, limit: 5, response_format: "json" });
     const musicalData = JSON.parse(musicalResult);
 
+    // 연극 공연 TOP 5
     const theaterResult = await cultureSearchPerformance({ genre: "연극", region, limit: 5, response_format: "json" });
     const theaterData = JSON.parse(theaterResult);
 
@@ -905,13 +915,14 @@ const LANDING_PAGE_HTML = `<!DOCTYPE html>
 🥉 소방관 - 누적 2,345,678명</div></div></div></section>
   <section class="features"><div class="container"><h2>6개 도구로 문화생활 완벽 커버</h2><div class="features-grid"><div class="feature-card"><div class="feature-icon">🎬</div><h3>영화 박스오피스</h3><code>culture_get_box_office</code><p>일별/주간 박스오피스 순위와 관객수 조회</p></div><div class="feature-card"><div class="feature-icon">🎥</div><h3>영화 상세정보</h3><code>culture_get_movie_detail</code><p>감독, 배우, 관람등급, 줄거리 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🎭</div><h3>공연 검색</h3><code>culture_search_performance</code><p>연극, 뮤지컬, 콘서트 등 장르별 공연 검색</p></div><div class="feature-card"><div class="feature-icon">🎪</div><h3>공연 상세정보</h3><code>culture_get_performance_detail</code><p>출연진, 티켓가격, 공연시간 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🏛️</div><h3>공연장 정보</h3><code>culture_get_facility_info</code><p>공연장 위치, 좌석수, 연락처 조회</p></div><div class="feature-card"><div class="feature-icon">✨</div><h3>오늘의 추천</h3><code>culture_get_recommendations</code><p>인기 영화 + 공연 통합 추천</p></div></div></div></section>
   <section class="cta"><div class="container"><h2>지금 바로 사용해보세요</h2><p>PlayMCP에서 도구함에 추가하거나 Claude Desktop에 연결하세요</p><div class="cta-buttons"><a href="https://playmcp.kakao.com" class="btn btn-primary" target="_blank">PlayMCP에서 추가</a><a href="https://github.com/yonghwan1106/korea-culture-mcp" class="btn btn-secondary" target="_blank">GitHub 저장소</a></div></div></section>
-  <footer><div class="container"><p><strong>Korea Culture MCP</strong> - 영화/공연 정보, AI에게 물어보세요</p><div class="endpoint">MCP Endpoint: https://korea-culture-mcp.vercel.app/mcp</div><p style="margin-top:20px"><a href="https://github.com/yonghwan1106/korea-culture-mcp">GitHub</a> · <a href="https://playmcp.kakao.com">PlayMCP</a> · MIT License</p></div></footer>
+  <footer><div class="container"><p><strong>Korea Culture MCP</strong> - 영화/공연 정보, AI에게 물어보세요</p><div class="endpoint">MCP Endpoint: https://korea-culture-mcp-eight.vercel.app/mcp</div><p style="margin-top:20px"><a href="https://github.com/yonghwan1106/korea-culture-mcp">GitHub</a> · <a href="https://playmcp.kakao.com">PlayMCP</a> · MIT License</p></div></footer>
 </body>
 </html>`;
 
 // ===== Vercel 핸들러 =====
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS 헤더
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, x-session-id, Accept");
@@ -920,13 +931,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
+  // 경로 확인
   const urlPath = req.url?.split("?")[0] || "/";
 
+  // 랜딩 페이지 (루트 경로)
   if (req.method === "GET" && (urlPath === "/" || urlPath === "")) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(LANDING_PAGE_HTML);
   }
 
+  // Health check
   if (req.method === "GET") {
     return res.status(200).json({
       status: "ok",
@@ -936,6 +950,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  // MCP JSON-RPC endpoint
   if (req.method === "POST") {
     try {
       const body = req.body;
