@@ -904,18 +904,684 @@ const LANDING_PAGE_HTML = `<!DOCTYPE html>
   <meta property="og:title" content="Korea Culture MCP - 영화/공연 AI 조회">
   <meta property="og:description" content="오늘 뭐 볼까? 라고 물으면 바로 답해드립니다.">
   <title>Korea Culture MCP - 영화/공연 AI 조회</title>
-  <style>:root{--primary:#dc2626;--primary-dark:#b91c1c;--secondary:#f59e0b;--bg:#f8fafc;--card:#fff;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}.container{max-width:1200px;margin:0 auto;padding:0 20px}header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:80px 0 100px;text-align:center}.logo{font-size:3rem;margin-bottom:10px}h1{font-size:2.5rem;font-weight:700;margin-bottom:15px}.tagline{font-size:1.3rem;opacity:.9;margin-bottom:30px}.badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;background:rgba(255,255,255,.15);padding:8px 16px;border-radius:20px;font-size:.9rem;text-decoration:none;color:#fff;transition:background .2s}.badge:hover{background:rgba(255,255,255,.25)}.demo-section{margin-top:-50px;margin-bottom:60px}.demo-card{background:var(--card);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.1);padding:30px;max-width:700px;margin:0 auto}.demo-card h3{color:var(--primary);margin-bottom:15px;font-size:1.1rem}.chat-bubble{background:#fef2f2;border-radius:12px;padding:15px 20px;margin-bottom:15px;display:inline-block}.response{background:#f1f5f9;border-radius:12px;padding:20px;font-family:Consolas,monospace;font-size:.9rem;white-space:pre-line;line-height:1.8}.features{padding:60px 0}.features h2{text-align:center;font-size:2rem;margin-bottom:50px}.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:25px}.feature-card{background:var(--card);border-radius:12px;padding:25px;border:1px solid var(--border);transition:transform .2s,box-shadow .2s}.feature-card:hover{transform:translateY(-5px);box-shadow:0 10px 30px rgba(0,0,0,.08)}.feature-icon{font-size:2.5rem;margin-bottom:15px}.feature-card h3{font-size:1.1rem;margin-bottom:10px}.feature-card code{display:block;background:#f1f5f9;padding:8px 12px;border-radius:6px;font-size:.85rem;color:var(--primary);margin-bottom:10px}.feature-card p{color:var(--text-muted);font-size:.95rem}.cta{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:80px 0;text-align:center}.cta h2{font-size:2rem;margin-bottom:20px}.cta p{opacity:.8;margin-bottom:30px;font-size:1.1rem}.cta-buttons{display:flex;gap:15px;justify-content:center;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:8px;font-size:1rem;font-weight:600;text-decoration:none;transition:transform .2s}.btn:hover{transform:translateY(-2px)}.btn-primary{background:var(--secondary);color:#fff}.btn-secondary{background:#fff;color:var(--text)}footer{background:#1e293b;color:#94a3b8;padding:40px 0;text-align:center}footer a{color:#94a3b8;text-decoration:none}footer a:hover{color:#fff}.endpoint{background:rgba(255,255,255,.1);display:inline-block;padding:10px 20px;border-radius:6px;font-family:monospace;margin:15px 0}@media(max-width:768px){header{padding:60px 0 80px}h1{font-size:1.8rem}.tagline{font-size:1.1rem}.features-grid{grid-template-columns:1fr}}</style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #d4af37;
+      --gold-light: #f4e4bc;
+      --gold-dark: #b8860b;
+      --crimson: #8b0000;
+      --crimson-light: #dc143c;
+      --velvet: #1a0a0a;
+      --velvet-light: #2d1515;
+      --cream: #faf8f5;
+      --shadow: rgba(0,0,0,0.5);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--velvet);
+      color: var(--cream);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* Curtain Animation */
+    .curtain-left, .curtain-right {
+      position: fixed;
+      top: 0;
+      width: 51%;
+      height: 100vh;
+      background: linear-gradient(180deg, #4a0000 0%, #8b0000 50%, #4a0000 100%);
+      z-index: 9999;
+      animation: curtainOpen 1.5s ease-out forwards;
+    }
+    .curtain-left { left: 0; transform-origin: left; }
+    .curtain-right { right: 0; transform-origin: right; }
+    .curtain-left::after, .curtain-right::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(0,0,0,0.1) 30px, rgba(0,0,0,0.1) 60px);
+    }
+    @keyframes curtainOpen {
+      0% { transform: scaleX(1); }
+      100% { transform: scaleX(0); }
+    }
+
+    /* Film Strip Decoration */
+    .film-strip {
+      position: fixed;
+      top: 0;
+      width: 40px;
+      height: 100%;
+      background: #111;
+      z-index: 100;
+      opacity: 0.6;
+    }
+    .film-strip::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 8px;
+      width: 24px;
+      height: 100%;
+      background: repeating-linear-gradient(to bottom, transparent 0, transparent 20px, #222 20px, #222 30px, transparent 30px, transparent 50px);
+    }
+    .film-strip.left { left: 0; }
+    .film-strip.right { right: 0; }
+
+    /* Spotlight Effect */
+    .spotlight {
+      position: fixed;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 50;
+      transition: all 0.3s ease;
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 60px 20px;
+      position: relative;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(139,0,0,0.3) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(212,175,55,0.1) 0%, transparent 40%),
+        var(--velvet);
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--crimson), var(--gold), var(--crimson));
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: rgba(212,175,55,0.1);
+      border: 1px solid var(--gold);
+      border-radius: 30px;
+      font-size: 0.85rem;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+      animation: fadeInDown 0.8s ease 1.5s both;
+    }
+
+    .hero-icons {
+      font-size: 4rem;
+      margin-bottom: 20px;
+      animation: fadeInDown 0.8s ease 1.6s both;
+      filter: drop-shadow(0 0 30px rgba(212,175,55,0.5));
+    }
+
+    .hero h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 50%, var(--gold-dark) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 20px;
+      animation: fadeInDown 0.8s ease 1.7s both;
+      text-shadow: 0 0 60px rgba(212,175,55,0.3);
+    }
+
+    .hero-tagline {
+      font-size: 1.4rem;
+      font-weight: 300;
+      color: rgba(250,248,245,0.8);
+      margin-bottom: 50px;
+      animation: fadeInDown 0.8s ease 1.8s both;
+    }
+    .hero-tagline em {
+      font-style: normal;
+      color: var(--gold);
+      font-weight: 500;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeInUp 0.8s ease 1.9s both;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 32px;
+      font-size: 1rem;
+      font-weight: 500;
+      text-decoration: none;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+      color: var(--velvet);
+      box-shadow: 0 4px 20px rgba(212,175,55,0.4);
+    }
+    .btn-gold:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 30px rgba(212,175,55,0.6);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--cream);
+      border: 1px solid rgba(250,248,245,0.3);
+    }
+    .btn-outline:hover {
+      border-color: var(--gold);
+      color: var(--gold);
+      transform: translateY(-3px);
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Demo Section - Ticket Style */
+    .demo {
+      padding: 100px 20px;
+      background: linear-gradient(180deg, var(--velvet) 0%, var(--velvet-light) 100%);
+      position: relative;
+    }
+
+    .demo::before {
+      content: 'PREVIEW';
+      position: absolute;
+      top: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Playfair Display', serif;
+      font-size: 0.9rem;
+      letter-spacing: 8px;
+      color: var(--gold);
+      opacity: 0.5;
+    }
+
+    .ticket {
+      max-width: 700px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+      position: relative;
+    }
+
+    .ticket::before, .ticket::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 30px;
+      height: 30px;
+      background: var(--velvet-light);
+      border-radius: 50%;
+      transform: translateY(-50%);
+    }
+    .ticket::before { left: -15px; }
+    .ticket::after { right: -15px; }
+
+    .ticket-header {
+      background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-light) 100%);
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ticket-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .ticket-badge {
+      background: var(--gold);
+      color: var(--velvet);
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .ticket-body {
+      padding: 30px;
+    }
+
+    .chat-user {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .chat-avatar {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .chat-bubble {
+      background: rgba(212,175,55,0.1);
+      border: 1px solid rgba(212,175,55,0.3);
+      padding: 14px 20px;
+      border-radius: 4px 16px 16px 16px;
+      font-size: 0.95rem;
+    }
+
+    .chat-response {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      line-height: 2;
+      margin-left: 48px;
+    }
+
+    .chat-response .rank { color: var(--gold); }
+    .chat-response .title { color: var(--cream); font-weight: 500; }
+    .chat-response .count { color: rgba(250,248,245,0.6); }
+
+    /* Tools Section */
+    .tools {
+      padding: 120px 20px;
+      background: var(--velvet);
+      position: relative;
+    }
+
+    .tools::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--gold) 50%, transparent 100%);
+      opacity: 0.3;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 80px;
+    }
+
+    .section-label {
+      font-size: 0.85rem;
+      letter-spacing: 4px;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-bottom: 15px;
+    }
+
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 700;
+      color: var(--cream);
+    }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .tool-card {
+      background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 32px;
+      transition: all 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tool-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--crimson), var(--gold));
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .tool-card:hover {
+      transform: translateY(-8px);
+      border-color: rgba(212,175,55,0.3);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+
+    .tool-card:hover::before { opacity: 1; }
+
+    .tool-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--crimson) 0%, var(--crimson-light) 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 20px rgba(139,0,0,0.3);
+    }
+
+    .tool-card h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--cream);
+    }
+
+    .tool-code {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--gold);
+      background: rgba(212,175,55,0.1);
+      padding: 6px 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+
+    .tool-card p {
+      color: rgba(250,248,245,0.6);
+      font-size: 0.95rem;
+    }
+
+    /* CTA Section */
+    .cta {
+      padding: 120px 20px;
+      text-align: center;
+      background:
+        radial-gradient(ellipse at 50% 100%, rgba(139,0,0,0.2) 0%, transparent 50%),
+        linear-gradient(180deg, var(--velvet-light) 0%, var(--velvet) 100%);
+      position: relative;
+    }
+
+    .cta-title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--cream);
+    }
+
+    .cta-desc {
+      font-size: 1.1rem;
+      color: rgba(250,248,245,0.7);
+      margin-bottom: 40px;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* Footer */
+    footer {
+      background: #0a0505;
+      padding: 60px 20px;
+      text-align: center;
+      border-top: 1px solid rgba(212,175,55,0.1);
+    }
+
+    .footer-logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: 20px;
+    }
+
+    .endpoint-box {
+      display: inline-block;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 16px 32px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+
+    .endpoint-label {
+      font-size: 0.75rem;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .endpoint-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--cream);
+    }
+
+    .footer-links {
+      margin-top: 30px;
+      display: flex;
+      gap: 30px;
+      justify-content: center;
+    }
+
+    .footer-links a {
+      color: rgba(250,248,245,0.5);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.3s ease;
+    }
+
+    .footer-links a:hover { color: var(--gold); }
+
+    .footer-copy {
+      margin-top: 30px;
+      color: rgba(250,248,245,0.3);
+      font-size: 0.8rem;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .film-strip { display: none; }
+      .hero { padding: 80px 20px; }
+      .hero-icons { font-size: 3rem; }
+      .tools-grid { grid-template-columns: 1fr; }
+      .ticket { margin: 0 10px; }
+      .chat-response { margin-left: 0; margin-top: 15px; }
+    }
+  </style>
 </head>
 <body>
-  <header><div class="container"><div class="logo">🎬🎭🎪</div><h1>Korea Culture MCP</h1><p class="tagline">"오늘 뭐 볼까?" 라고 물으면 바로 답해드립니다</p><div class="badges"><a href="https://playmcp.kakao.com" class="badge" target="_blank">PlayMCP 등록</a><a href="https://github.com/yonghwan1106/korea-culture-mcp" class="badge" target="_blank">GitHub</a><span class="badge">MCP Compatible</span><span class="badge">실시간 데이터</span></div></div></header>
-  <section class="demo-section"><div class="container"><div class="demo-card"><h3>사용 예시</h3><div class="chat-bubble">오늘 영화 박스오피스 순위 알려줘</div><div class="response">🎬 일별 박스오피스
+  <div class="curtain-left"></div>
+  <div class="curtain-right"></div>
+  <div class="film-strip left"></div>
+  <div class="film-strip right"></div>
 
-🥇 하얼빈 - 누적 5,234,567명
-🥈 위키드 - 누적 3,456,789명
-🥉 소방관 - 누적 2,345,678명</div></div></div></section>
-  <section class="features"><div class="container"><h2>6개 도구로 문화생활 완벽 커버</h2><div class="features-grid"><div class="feature-card"><div class="feature-icon">🎬</div><h3>영화 박스오피스</h3><code>culture_get_box_office</code><p>일별/주간 박스오피스 순위와 관객수 조회</p></div><div class="feature-card"><div class="feature-icon">🎥</div><h3>영화 상세정보</h3><code>culture_get_movie_detail</code><p>감독, 배우, 관람등급, 줄거리 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🎭</div><h3>공연 검색</h3><code>culture_search_performance</code><p>연극, 뮤지컬, 콘서트 등 장르별 공연 검색</p></div><div class="feature-card"><div class="feature-icon">🎪</div><h3>공연 상세정보</h3><code>culture_get_performance_detail</code><p>출연진, 티켓가격, 공연시간 등 상세정보</p></div><div class="feature-card"><div class="feature-icon">🏛️</div><h3>공연장 정보</h3><code>culture_get_facility_info</code><p>공연장 위치, 좌석수, 연락처 조회</p></div><div class="feature-card"><div class="feature-icon">✨</div><h3>오늘의 추천</h3><code>culture_get_recommendations</code><p>인기 영화 + 공연 통합 추천</p></div></div></div></section>
-  <section class="cta"><div class="container"><h2>지금 바로 사용해보세요</h2><p>PlayMCP에서 도구함에 추가하거나 Claude Desktop에 연결하세요</p><div class="cta-buttons"><a href="https://playmcp.kakao.com" class="btn btn-primary" target="_blank">PlayMCP에서 추가</a><a href="https://github.com/yonghwan1106/korea-culture-mcp" class="btn btn-secondary" target="_blank">GitHub 저장소</a></div></div></section>
-  <footer><div class="container"><p><strong>Korea Culture MCP</strong> - 영화/공연 정보, AI에게 물어보세요</p><div class="endpoint">MCP Endpoint: https://korea-culture-mcp-eight.vercel.app/mcp</div><p style="margin-top:20px"><a href="https://github.com/yonghwan1106/korea-culture-mcp">GitHub</a> · <a href="https://playmcp.kakao.com">PlayMCP</a> · MIT License</p></div></footer>
+  <section class="hero">
+    <span class="hero-badge">MCP Server for Korean Culture</span>
+    <div class="hero-icons">🎬 🎭 🎪</div>
+    <h1>Korea Culture MCP</h1>
+    <p class="hero-tagline"><em>"오늘 뭐 볼까?"</em> 라고 물으면 바로 답해드립니다</p>
+    <div class="hero-buttons">
+      <a href="https://playmcp.kakao.com" class="btn btn-gold" target="_blank">PlayMCP에서 추가</a>
+      <a href="https://github.com/yonghwan1106/korea-culture-mcp" class="btn btn-outline" target="_blank">GitHub</a>
+    </div>
+  </section>
+
+  <section class="demo">
+    <div class="ticket">
+      <div class="ticket-header">
+        <span class="ticket-title">실시간 데모</span>
+        <span class="ticket-badge">LIVE</span>
+      </div>
+      <div class="ticket-body">
+        <div class="chat-user">
+          <div class="chat-avatar">👤</div>
+          <div class="chat-bubble">오늘 영화 박스오피스 순위 알려줘</div>
+        </div>
+        <div class="chat-response">
+          <span class="rank">🎬</span> 일별 박스오피스<br><br>
+          <span class="rank">🥇</span> <span class="title">하얼빈</span> <span class="count">- 누적 5,234,567명</span><br>
+          <span class="rank">🥈</span> <span class="title">위키드</span> <span class="count">- 누적 3,456,789명</span><br>
+          <span class="rank">🥉</span> <span class="title">소방관</span> <span class="count">- 누적 2,345,678명</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tools">
+    <div class="container">
+      <div class="section-header">
+        <p class="section-label">Tools</p>
+        <h2 class="section-title">6개 도구로 문화생활 완벽 커버</h2>
+      </div>
+      <div class="tools-grid">
+        <div class="tool-card">
+          <div class="tool-icon">🎬</div>
+          <h3>영화 박스오피스</h3>
+          <span class="tool-code">culture_get_box_office</span>
+          <p>일별/주간 박스오피스 순위와 관객수를 실시간으로 조회합니다</p>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon">🎥</div>
+          <h3>영화 상세정보</h3>
+          <span class="tool-code">culture_get_movie_detail</span>
+          <p>감독, 배우, 관람등급, 상영시간 등 영화 상세정보를 제공합니다</p>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon">🎭</div>
+          <h3>공연 검색</h3>
+          <span class="tool-code">culture_search_performance</span>
+          <p>연극, 뮤지컬, 콘서트 등 장르별 공연을 검색합니다</p>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon">🎪</div>
+          <h3>공연 상세정보</h3>
+          <span class="tool-code">culture_get_performance_detail</span>
+          <p>출연진, 티켓가격, 공연시간 등 상세정보를 확인합니다</p>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon">🏛️</div>
+          <h3>공연장 정보</h3>
+          <span class="tool-code">culture_get_facility_info</span>
+          <p>공연장 위치, 좌석수, 연락처 등을 조회합니다</p>
+        </div>
+        <div class="tool-card">
+          <div class="tool-icon">✨</div>
+          <h3>오늘의 추천</h3>
+          <span class="tool-code">culture_get_recommendations</span>
+          <p>인기 영화와 공연을 한 번에 추천받을 수 있습니다</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <h2 class="cta-title">지금 바로 시작하세요</h2>
+      <p class="cta-desc">PlayMCP에서 도구함에 추가하거나 Claude Desktop에 연결하여 사용할 수 있습니다</p>
+      <div class="cta-buttons">
+        <a href="https://playmcp.kakao.com" class="btn btn-gold" target="_blank">PlayMCP에서 추가</a>
+        <a href="https://github.com/yonghwan1106/korea-culture-mcp" class="btn btn-outline" target="_blank">GitHub 저장소</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="footer-logo">🎬 Korea Culture MCP</div>
+      <p>영화/공연 정보, AI에게 물어보세요</p>
+      <div class="endpoint-box">
+        <p class="endpoint-label">MCP Endpoint</p>
+        <p class="endpoint-url">https://korea-culture-mcp-eight.vercel.app/mcp</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/yonghwan1106/korea-culture-mcp" target="_blank">GitHub</a>
+        <a href="https://playmcp.kakao.com" target="_blank">PlayMCP</a>
+      </div>
+      <p class="footer-copy">MIT License · KOBIS & KOPIS API Powered</p>
+    </div>
+  </footer>
+
+  <script>
+    // Remove curtains after animation
+    setTimeout(() => {
+      document.querySelectorAll('.curtain-left, .curtain-right').forEach(el => el.remove());
+    }, 2000);
+
+    // Spotlight effect
+    const spotlight = document.createElement('div');
+    spotlight.className = 'spotlight';
+    document.body.appendChild(spotlight);
+
+    document.addEventListener('mousemove', (e) => {
+      spotlight.style.left = e.clientX - 150 + 'px';
+      spotlight.style.top = e.clientY - 150 + 'px';
+    });
+  </script>
 </body>
 </html>`;
 
